@@ -75,6 +75,43 @@ def get_preview(text, word_count=100):
         preview += '...'
     return preview
 
+def extract_chapter_heading(content):
+    """Extract main heading from content using Kindle methodology.
+
+    Kindle reads the visual hierarchy of headings in the content file itself,
+    preferring the first significant heading found (h1 > h2 > h3 > h4).
+    """
+    try:
+        root = ET.fromstring(content)
+        ns = {'html': 'http://www.w3.org/1999/xhtml'}
+
+        # Try with namespace first (XHTML)
+        for tag in ['html:h1', 'html:h2', 'html:h3', 'html:h4']:
+            for elem in root.findall('.//' + tag, ns):
+                text = extract_text(elem).strip()
+                if text and len(text) > 0:
+                    return text
+
+        # Try without namespace (HTML)
+        for tag in ['h1', 'h2', 'h3', 'h4']:
+            for elem in root.findall('.//' + tag):
+                text = extract_text(elem).strip()
+                if text and len(text) > 0:
+                    return text
+    except:
+        pass
+
+    return None
+
+def extract_text(elem):
+    """Recursively extract all text from an element."""
+    text = elem.text or ''
+    for child in elem:
+        text += extract_text(child)
+        if child.tail:
+            text += child.tail
+    return text
+
 def get_toc_entries(zip_ref, opf_path, opf_dir):
     """Extract chapter titles from TOC (toc.ncx or nav.xhtml)."""
     toc_map = {}
@@ -248,12 +285,15 @@ def parse_epub(file_path):
                                 content = f.read().decode('utf-8', errors='ignore')
                                 word_count = count_words(content)
 
-                                # Get title from TOC - try multiple key formats
-                                title = None
-                                for key in [href, content_path, href.split('/')[-1], content_path.split('/')[-1]]:
-                                    if key in toc_map:
-                                        title = toc_map[key]
-                                        break
+                                # Kindle methodology: extract heading from content hierarchy
+                                title = extract_chapter_heading(content)
+
+                                # Fall back to TOC if no heading found
+                                if not title:
+                                    for key in [href, content_path, href.split('/')[-1], content_path.split('/')[-1]]:
+                                        if key in toc_map:
+                                            title = toc_map[key]
+                                            break
 
                                 if not title:
                                     title = f'Section {chapter_num + 1}'
